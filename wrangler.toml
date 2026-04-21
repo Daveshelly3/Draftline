@@ -1,0 +1,6 @@
+name = "draftline"
+compatibility_date = "2024-09-23"
+pages_build_output_dir = "."
+
+# Set WINDY_POINT_API_KEY in Cloudflare Pages dashboard (Settings → Environment Variables)
+# or in .dev.vars for local development

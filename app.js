@@ -124,45 +124,39 @@ function svgStorm() {
 
 // ── Data processing ───────────────────────────────────────────────────────────
 
-function parseWindyResponse(raw) {
-  const ts = raw.ts;
-  const hourly = ts.map((t, i) => {
-    const u = raw['wind_u-surface']?.[i] ?? 0;
-    const v = raw['wind_v-surface']?.[i] ?? 0;
-    const wind = windFromUV(u, v);
-    const tempK = raw['temp-surface']?.[i] ?? 273;
-    const dewK = raw['dewpoint-surface']?.[i] ?? 270;
-    const gustMs = raw['gust-surface']?.[i] ?? wind.speed;
-    const precip = raw['precip-surface']?.[i] ?? 0;
-    const humidity = raw['humidity-surface']?.[i] ?? 0;
-    const lc = raw['lclouds-surface']?.[i] ?? 0;
-    const mc = raw['mclouds-surface']?.[i] ?? 0;
-    const hc = raw['hclouds-surface']?.[i] ?? 0;
-    const cape = raw['cape-surface']?.[i] ?? 0;
+function parseYRResponse(raw) {
+  const timeseries = raw.properties?.timeseries;
+  if (!timeseries?.length) throw new Error('Invalid YR response');
 
-    const tempC = kToC(tempK);
-    const dewC = kToC(dewK);
-    const windKmh = msToKmh(wind.speed);
-    const gustKmh = msToKmh(gustMs);
-    const cloudCover = Math.round(Math.max(lc, mc, hc));
+  return timeseries.slice(0, 24).map(item => {
+    const inst = item.data.instant.details;
+    const next1h = item.data.next_1_hours;
+    const next6h = item.data.next_6_hours;
+
+    const precip = next1h?.details?.precipitation_amount
+      ?? next6h?.details?.precipitation_amount
+      ?? 0;
+
+    const windDir = inst.wind_from_direction ?? 0;
+    const windKmh = msToKmh(inst.wind_speed ?? 0);
+    const gustKmh = msToKmh(inst.wind_speed_of_gust ?? inst.wind_speed ?? 0);
+    const ts = new Date(item.time).getTime();
 
     return {
-      ts: t,
-      time: new Date(t),
-      tempC,
-      dewC,
+      ts,
+      time: new Date(item.time),
+      tempC: Math.round(inst.air_temperature ?? 0),
+      dewC: Math.round(inst.dew_point_temperature ?? 0),
       windKmh,
-      windDir: wind.dir,
-      windDirCompass: compassDir(wind.dir),
+      windDir,
+      windDirCompass: compassDir(windDir),
       gustKmh,
       precip: Math.max(0, precip),
-      humidity: Math.round(humidity),
-      cloudCover,
-      cape: Math.round(cape),
+      humidity: Math.round(inst.relative_humidity ?? 0),
+      cloudCover: Math.round(inst.cloud_area_fraction ?? 0),
+      cape: 0,
     };
   });
-
-  return hourly;
 }
 
 // ── Ride Decision Engine ──────────────────────────────────────────────────────
@@ -304,63 +298,40 @@ function kitSuggestion(hourly) {
 // ── Demo data (used when API is unavailable) ──────────────────────────────────
 
 function makeDemoData() {
-  const now = Date.now();
-  const step = 3 * 60 * 60 * 1000; // 3h intervals
-  const ts = Array.from({ length: 16 }, (_, i) => now + i * step);
-
-  const base = {
-    temp: 289,    // ~16°C
-    wind_u: -4,   // westerly
-    wind_v: 2,
-    gust: 8,
-    precip: 0,
-    humidity: 65,
-    lclouds: 30,
-    mclouds: 20,
-    hclouds: 10,
-    cape: 50,
-    dewpoint: 282,
-  };
-
-  // Inject some rain mid-forecast so the UI is interesting
-  const variations = ts.map((_, i) => ({
-    temp: base.temp + Math.sin(i * 0.5) * 3,
-    wind_u: base.wind_u + (Math.random() - 0.5) * 2,
-    wind_v: base.wind_v + (Math.random() - 0.5) * 2,
-    gust: base.gust + Math.random() * 4,
-    precip: i >= 3 && i <= 5 ? 1.2 + Math.random() * 2 : Math.random() * 0.1,
-    humidity: base.humidity + Math.random() * 10,
-    lclouds: i >= 2 && i <= 6 ? 70 + Math.random() * 20 : 20 + Math.random() * 20,
-    mclouds: 15 + Math.random() * 10,
-    hclouds: 10 + Math.random() * 5,
-    cape: i === 4 ? 450 : 30 + Math.random() * 50,
-    dewpoint: base.dewpoint + Math.random() * 2,
-  }));
-
-  const pick = (key) => variations.map(v => v[key]);
-
-  return {
-    ts,
-    units: { temp: 'K', 'wind_u-surface': 'm/s', 'wind_v-surface': 'm/s', 'gust-surface': 'm/s', 'precip-surface': 'mm/h' },
-    'temp-surface': pick('temp'),
-    'wind_u-surface': pick('wind_u'),
-    'wind_v-surface': pick('wind_v'),
-    'gust-surface': pick('gust'),
-    'precip-surface': pick('precip'),
-    'humidity-surface': pick('humidity'),
-    'lclouds-surface': pick('lclouds'),
-    'mclouds-surface': pick('mclouds'),
-    'hclouds-surface': pick('hclouds'),
-    'cape-surface': pick('cape'),
-    'dewpoint-surface': pick('dewpoint'),
-    _demo: true,
-  };
+  const step = 60 * 60 * 1000; // 1h intervals
+  const timeseries = Array.from({ length: 24 }, (_, i) => {
+    const t = new Date(Date.now() + i * step);
+    const windDir = 220 + Math.sin(i * 0.4) * 30;
+    const windSpeed = 4 + Math.sin(i * 0.3) * 2;
+    const precip = (i >= 3 && i <= 5) ? 1.2 + Math.random() * 2 : Math.random() * 0.1;
+    return {
+      time: t.toISOString(),
+      data: {
+        instant: {
+          details: {
+            air_temperature: 16 + Math.sin(i * 0.4) * 4,
+            dew_point_temperature: 9 + Math.random() * 2,
+            wind_speed: windSpeed,
+            wind_from_direction: windDir,
+            wind_speed_of_gust: windSpeed + 2 + Math.random() * 3,
+            relative_humidity: 65 + Math.random() * 15,
+            cloud_area_fraction: i >= 2 && i <= 6 ? 75 + Math.random() * 20 : 25 + Math.random() * 20,
+          },
+        },
+        next_1_hours: {
+          summary: { symbol_code: precip > 0.5 ? 'rain' : 'partlycloudy_day' },
+          details: { precipitation_amount: precip },
+        },
+      },
+    };
+  });
+  return { properties: { timeseries }, _demo: true };
 }
 
 // ── Fetch weather ─────────────────────────────────────────────────────────────
 
 async function fetchWeather(lat, lon) {
-  const params = new URLSearchParams({ lat, lon, model: state.model });
+  const params = new URLSearchParams({ lat, lon });
   try {
     const resp = await fetch(`/api/weather?${params}`);
     if (!resp.ok) {
@@ -369,7 +340,6 @@ async function fetchWeather(lat, lon) {
     }
     return resp.json();
   } catch (err) {
-    // Fall back to demo data when running without a proxy/API key
     console.warn('API unavailable, using demo data:', err.message);
     state.isDemo = true;
     return makeDemoData();
@@ -534,7 +504,7 @@ function renderAll() {
   document.getElementById('last-updated').textContent = state.lastUpdated
     ? `Updated ${formatTime(state.lastUpdated)}`
     : '';
-  document.getElementById('model-badge').textContent = state.model.toUpperCase();
+  // model badge removed (now using YR)
 
   const demoBanner = document.getElementById('demo-banner');
   if (demoBanner) demoBanner.classList.toggle('hidden', !state.isDemo);
@@ -572,7 +542,7 @@ async function loadWeather(lat, lon, name, region) {
   try {
     const raw = await fetchWeather(lat, lon);
     state.weatherData = raw;
-    state.hourly = parseWindyResponse(raw);
+    state.hourly = parseYRResponse(raw);
     state.lastUpdated = Date.now();
 
     if (!name) {

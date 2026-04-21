@@ -1,5 +1,5 @@
 export async function onRequest(context) {
-  const { request, env } = context;
+  const { request } = context;
 
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -14,7 +14,6 @@ export async function onRequest(context) {
   const url = new URL(request.url);
   const lat = parseFloat(url.searchParams.get('lat'));
   const lon = parseFloat(url.searchParams.get('lon'));
-  const model = url.searchParams.get('model') || 'gfs';
 
   if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
     return new Response(JSON.stringify({ error: 'Invalid coordinates' }), {
@@ -23,45 +22,18 @@ export async function onRequest(context) {
     });
   }
 
-  const apiKey = env.WINDY_POINT_API_KEY;
-  if (!apiKey) {
-    return new Response(JSON.stringify({ error: 'API key not configured on server' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders },
-    });
-  }
-
-  const body = {
-    lat,
-    lon,
-    model,
-    parameters: [
-      'temp',
-      'dewpoint',
-      'precip',
-      'wind_u-surface',
-      'wind_v-surface',
-      'gust',
-      'humidity',
-      'lclouds',
-      'mclouds',
-      'hclouds',
-      'cape',
-    ],
-    levels: ['surface'],
-    key: apiKey,
-  };
+  const yrUrl = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`;
 
   try {
-    const resp = await fetch('https://api.windy.com/api/point-forecast/v2', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+    const resp = await fetch(yrUrl, {
+      headers: {
+        'User-Agent': 'Draftline/1.0 github.com/Daveshelly3/Draftline',
+        'Accept': 'application/json',
+      },
     });
 
     if (!resp.ok) {
-      const detail = await resp.text();
-      return new Response(JSON.stringify({ error: 'Windy API error', detail }), {
+      return new Response(JSON.stringify({ error: 'YR API error', status: resp.status }), {
         status: resp.status,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       });

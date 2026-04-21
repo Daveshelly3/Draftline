@@ -5,7 +5,6 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 
 const PORT = 8080;
 const ROOT = __dirname;
@@ -21,41 +20,18 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
-const WINDY_KEY = process.env.WINDY_POINT_API_KEY || loadDevVars();
-
-function loadDevVars() {
+async function proxyYR(lat, lon, res) {
+  const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${parseFloat(lat).toFixed(4)}&lon=${parseFloat(lon).toFixed(4)}`;
   try {
-    const raw = fs.readFileSync(path.join(ROOT, '.dev.vars'), 'utf8');
-    const match = raw.match(/WINDY_POINT_API_KEY\s*=\s*(.+)/);
-    return match ? match[1].trim() : '';
-  } catch { return ''; }
-}
-
-async function proxyWindy(lat, lon, model, res) {
-  if (!WINDY_KEY) {
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'API key not configured on server' }));
-    return;
-  }
-
-  const body = JSON.stringify({
-    lat: parseFloat(lat),
-    lon: parseFloat(lon),
-    model: model || 'gfs',
-    parameters: ['temp','dewpoint','precip','wind_u-surface','wind_v-surface','gust','humidity','lclouds','mclouds','hclouds','cape'],
-    levels: ['surface'],
-    key: WINDY_KEY,
-  });
-
-  // Node 18+ has native fetch
-  try {
-    const upstream = await fetch('https://api.windy.com/api/point-forecast/v2', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
+    const upstream = await fetch(url, {
+      headers: { 'User-Agent': 'Draftline/1.0 github.com/Daveshelly3/Draftline' },
     });
     const data = await upstream.text();
-    res.writeHead(upstream.status, { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=1800' });
+    res.writeHead(upstream.status, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'max-age=1800',
+      'Access-Control-Allow-Origin': '*',
+    });
     res.end(data);
   } catch (err) {
     res.writeHead(502, { 'Content-Type': 'application/json' });
@@ -66,26 +42,16 @@ async function proxyWindy(lat, lon, model, res) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
-  // API proxy
   if (url.pathname === '/api/weather') {
-    await proxyWindy(
-      url.searchParams.get('lat'),
-      url.searchParams.get('lon'),
-      url.searchParams.get('model'),
-      res
-    );
+    await proxyYR(url.searchParams.get('lat'), url.searchParams.get('lon'), res);
     return;
   }
 
-  // Static files
   let filePath = path.join(ROOT, url.pathname === '/' ? 'index.html' : url.pathname);
   const ext = path.extname(filePath);
 
-  if (!ext && !filePath.includes('.')) filePath += '.html';
-
   fs.readFile(filePath, (err, data) => {
     if (err) {
-      // SPA fallback
       fs.readFile(path.join(ROOT, 'index.html'), (e2, d2) => {
         if (e2) { res.writeHead(404); res.end('Not found'); return; }
         res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -99,11 +65,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  const hasKey = !!WINDY_KEY;
   console.log(`\nDraftline running at http://localhost:${PORT}`);
-  console.log(hasKey
-    ? `Windy API key loaded — live data active`
-    : `No Windy key — app will use demo data (add key to .dev.vars)`
-  );
+  console.log('Weather data: YR / met.no (no API key needed)');
   console.log('Press Ctrl+C to stop\n');
 });

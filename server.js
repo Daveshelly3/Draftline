@@ -98,7 +98,7 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   const hasKey = !!WINDY_KEY;
   console.log(`\nDraftline running at http://localhost:${PORT}`);
   console.log(hasKey

@@ -16,6 +16,7 @@ const state = {
   model: 'gfs',
   loading: false,
   lastUpdated: null,
+  isDemo: false,
 };
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -300,16 +301,79 @@ function kitSuggestion(hourly) {
   return items;
 }
 
+// ── Demo data (used when API is unavailable) ──────────────────────────────────
+
+function makeDemoData() {
+  const now = Date.now();
+  const step = 3 * 60 * 60 * 1000; // 3h intervals
+  const ts = Array.from({ length: 16 }, (_, i) => now + i * step);
+
+  const base = {
+    temp: 289,    // ~16°C
+    wind_u: -4,   // westerly
+    wind_v: 2,
+    gust: 8,
+    precip: 0,
+    humidity: 65,
+    lclouds: 30,
+    mclouds: 20,
+    hclouds: 10,
+    cape: 50,
+    dewpoint: 282,
+  };
+
+  // Inject some rain mid-forecast so the UI is interesting
+  const variations = ts.map((_, i) => ({
+    temp: base.temp + Math.sin(i * 0.5) * 3,
+    wind_u: base.wind_u + (Math.random() - 0.5) * 2,
+    wind_v: base.wind_v + (Math.random() - 0.5) * 2,
+    gust: base.gust + Math.random() * 4,
+    precip: i >= 3 && i <= 5 ? 1.2 + Math.random() * 2 : Math.random() * 0.1,
+    humidity: base.humidity + Math.random() * 10,
+    lclouds: i >= 2 && i <= 6 ? 70 + Math.random() * 20 : 20 + Math.random() * 20,
+    mclouds: 15 + Math.random() * 10,
+    hclouds: 10 + Math.random() * 5,
+    cape: i === 4 ? 450 : 30 + Math.random() * 50,
+    dewpoint: base.dewpoint + Math.random() * 2,
+  }));
+
+  const pick = (key) => variations.map(v => v[key]);
+
+  return {
+    ts,
+    units: { temp: 'K', 'wind_u-surface': 'm/s', 'wind_v-surface': 'm/s', 'gust-surface': 'm/s', 'precip-surface': 'mm/h' },
+    'temp-surface': pick('temp'),
+    'wind_u-surface': pick('wind_u'),
+    'wind_v-surface': pick('wind_v'),
+    'gust-surface': pick('gust'),
+    'precip-surface': pick('precip'),
+    'humidity-surface': pick('humidity'),
+    'lclouds-surface': pick('lclouds'),
+    'mclouds-surface': pick('mclouds'),
+    'hclouds-surface': pick('hclouds'),
+    'cape-surface': pick('cape'),
+    'dewpoint-surface': pick('dewpoint'),
+    _demo: true,
+  };
+}
+
 // ── Fetch weather ─────────────────────────────────────────────────────────────
 
 async function fetchWeather(lat, lon) {
   const params = new URLSearchParams({ lat, lon, model: state.model });
-  const resp = await fetch(`/api/weather?${params}`);
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.error || `HTTP ${resp.status}`);
+  try {
+    const resp = await fetch(`/api/weather?${params}`);
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${resp.status}`);
+    }
+    return resp.json();
+  } catch (err) {
+    // Fall back to demo data when running without a proxy/API key
+    console.warn('API unavailable, using demo data:', err.message);
+    state.isDemo = true;
+    return makeDemoData();
   }
-  return resp.json();
 }
 
 // ── Geocoding ─────────────────────────────────────────────────────────────────
@@ -471,6 +535,9 @@ function renderAll() {
     ? `Updated ${formatTime(state.lastUpdated)}`
     : '';
   document.getElementById('model-badge').textContent = state.model.toUpperCase();
+
+  const demoBanner = document.getElementById('demo-banner');
+  if (demoBanner) demoBanner.classList.toggle('hidden', !state.isDemo);
 }
 
 // ── UI state management ───────────────────────────────────────────────────────

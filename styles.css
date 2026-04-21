@@ -957,6 +957,19 @@ body {
 
 .hidden { display: none !important; }
 
+.demo-banner {
+  background: rgba(255,193,7,0.1);
+  border: 1px solid rgba(255,193,7,0.3);
+  border-radius: var(--radius-sm);
+  color: var(--caution);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-align: center;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+
 /* ===========================
    WEATHER ICON SVGS
    =========================== */
